@@ -16,6 +16,9 @@
 
 ADCInput ADCInputs(A0, A1, A2);
 
+uint32_t targetTime = 0;                    // for next timeout
+float angle;
+
 void setup() {
   // run once:
   Serial.begin(115200);
@@ -72,7 +75,7 @@ void loop() {
   else if (refsqwv<0)
     digitalWriteFast(LED_BUILTIN, LOW);                                
 
-#if 0
+#if 1
   // show led when ref present
   if(refVal>0)
     digitalWriteFast(LED_BUILTIN, HIGH);
@@ -80,7 +83,7 @@ void loop() {
     digitalWriteFast(LED_BUILTIN, LOW);                                
 #endif
 
-#if 0
+#if 1
   // scott t transform the inputs
   sinin = s1ms3;
   // cosin = 2/sqrt(3) * (s3ms2 + 0.5 * s1ms3)
@@ -105,63 +108,58 @@ void loop() {
   theta = fmod((theta),(M_PI));
 
 
-  { // angle display update every 250mS
-    static int del_count = 0;
-    int del_value;
-    float angle;
-    del_value = millis();
-    if(del_value - del_count > 250)
-    {
-      del_count = del_value;
-      digitalWriteFast(LED_BUILTIN, LOW); 
-  #if 0                                   
-  //    Serial.print("ref=");
-      Serial.print(refVal);
-      Serial.print(", ");
-  //    Serial.print("sin=");
-      Serial.print(sinVal);
-      Serial.print(", ");
-  //    Serial.print("cos=");
-      Serial.print(cosVal);
-      Serial.print(", ");
-  #endif
+  // angle display update every 250mS
+  if (targetTime < millis()) 
+  {
+    targetTime += 50;
+#if 0                                   
+//    Serial.print("ref=");
+    Serial.print(refVal);
+    Serial.print(", ");
+//    Serial.print("sin=");
+    Serial.print(sinVal);
+    Serial.print(", ");
+//    Serial.print("cos=");
+    Serial.print(cosVal);
+    Serial.print(", ");
+#endif
 
-  #if 0
-      Serial.print(r2mr1,2);
-      Serial.print(",");
-      Serial.print(s1ms3,2);
-      Serial.print(",");
-      Serial.print(s3ms2,2);
-      Serial.print(",");
-  #endif
+#if 0
+    Serial.print(r2mr1,2);
+    Serial.print(",");
+    Serial.print(s1ms3,2);
+    Serial.print(",");
+    Serial.print(s3ms2,2);
+    Serial.print(",");
+#endif
 
-  #if 0
-  //    Serial.print("sinin=");
-      Serial.print(sinin,2);
-      Serial.print(", ");
-  //    Serial.print("cosin=");
-      Serial.print(cosin,2);
-      Serial.print(", ");
-  #endif
+#if 0
+//    Serial.print("sinin=");
+    Serial.print(sinin,2);
+    Serial.print(", ");
+//    Serial.print("cosin=");
+    Serial.print(cosin,2);
+    Serial.print(", ");
+#endif
 
-  #if 0
-      Serial.print("delta=");
-      Serial.print(delta,2);
-      Serial.print(", ");
-      Serial.print("demod=");
-      Serial.print(demod,2);
-      Serial.print(", ");
-  #endif
-      angle = theta*180/M_PI ;
-      angle = fmod(angle+180,360);
-  //    Serial.print("theta=");
-  //    Serial.print(theta,2);
-  //    Serial.print(theta_,2);
-  //    Serial.print(", ");
-  //    Serial.print("angle=");
-      Serial.print(angle,2);
-      Serial.println();
-    }
+#if 0
+    Serial.print("delta=");
+    Serial.print(delta,2);
+    Serial.print(", ");
+    Serial.print("demod=");
+    Serial.print(demod,2);
+    Serial.print(", ");
+#endif
+    angle = theta*180/M_PI ;
+    angle = fmod(angle+180,360);
+//    Serial.print("theta=");
+//    Serial.print(theta,2);
+//    Serial.print(theta_,2);
+//    Serial.print(", ");
+//    Serial.print("angle=");
+    Serial.print("0, 360, ");
+    Serial.print(angle,2);
+    Serial.println();
   }
 
 }

@@ -10,7 +10,7 @@
  */
 
 #include <SPI.h>
-#include <TFT_eSPI.h> // Hardware-specific library
+#include <TFT_eSPI.h>         // Hardware-specific library
 #include <ADCInput.h>         // buffered ADC read stream
 #include <math.h>             // initial build using floating point, intent to rewrite with fixed point
 
@@ -22,7 +22,6 @@ TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
 
 #define TFT_GREY 0x5AEB
 float sx = 0, sy = 1;    // Saved H, M, S x & y multipliers
-//float sdeg=0;
 uint16_t osx=120, osy=120;  // Saved H, M, S x & y coords
 uint16_t x0=0, x1=0, yy0=0, yy1=0;
 uint8_t ss=0;
@@ -37,7 +36,7 @@ void setup(void) {
   tft.setTextColor(TFT_WHITE, TFT_GREY);  // Adding a background colour erases previous text automatically
   
   Serial.begin(115200);
-  while(!Serial);
+//  while(!Serial);
   ADCInputs.begin(ADC_READ_FREQ);
 
   // Draw clock face
@@ -95,7 +94,7 @@ void draw_needle(float sdeg)
     sx = cos((sdeg-90)*0.0174532925);    
     sy = sin((sdeg-90)*0.0174532925);
 
-    // Redraw new hand positions, hour and minute hands not erased here to avoid flicker
+    // Redraw new hand positions
     tft.drawLine(osx, osy, 120, 121, TFT_BLACK);
     osx = sx*99+121;    
     osy = sy*99+121;
@@ -149,7 +148,7 @@ void loop() {
 
 #if 0
   // scott t transform the inputs
-  sinin = -s1ms3;
+  sinin = s1ms3;
   // cosin = 2/sqrt(3) * (s3ms2 + 0.5 * s1ms3)
   cosin = 1.1547 * (s3ms2 + 0.5 * s1ms3);
 #else  
@@ -172,64 +171,64 @@ void loop() {
   theta = fmod((theta),(M_PI));
 
 
-  { // angle display update every 250mS
+// angle display update every 250mS
   if (targetTime < millis()) 
   {
     targetTime += 250;
 
-  #if 0                                   
-  //    Serial.print("ref=");
-      Serial.print(refVal);
-      Serial.print(", ");
-  //    Serial.print("sin=");
-      Serial.print(sinVal);
-      Serial.print(", ");
-  //    Serial.print("cos=");
-      Serial.print(cosVal);
-      Serial.print(", ");
-  #endif
-
-  #if 0
-      Serial.print(r2mr1,2);
-      Serial.print(",");
-      Serial.print(s1ms3,2);
-      Serial.print(",");
-      Serial.print(s3ms2,2);
-      Serial.print(",");
-  #endif
-
-  #if 0
-  //    Serial.print("sinin=");
-      Serial.print(sinin,2);
-      Serial.print(", ");
-  //    Serial.print("cosin=");
-      Serial.print(cosin,2);
-      Serial.print(", ");
-  #endif
-
-  #if 0
-      Serial.print("delta=");
-      Serial.print(delta,2);
-      Serial.print(", ");
-      Serial.print("demod=");
-      Serial.print(demod,2);
-      Serial.print(", ");
-  #endif
-
-      angle = theta*180/M_PI ;
-      angle = fmod(angle+180.0,360.0);
-#if 1
-  //    Serial.print("theta=");
-  //    Serial.print(theta,2);
-  //    Serial.print(theta_,2);
-  //    Serial.print(", ");
-  //    Serial.print("angle=");
-      Serial.print(angle,2);
-      Serial.println();
+#if 0                                   
+//    Serial.print("ref=");
+    Serial.print(refVal);
+    Serial.print(", ");
+//    Serial.print("sin=");
+    Serial.print(sinVal);
+    Serial.print(", ");
+//    Serial.print("cos=");
+    Serial.print(cosVal);
+    Serial.print(", ");
 #endif
 
-      draw_needle(angle);
+#if 0
+    Serial.print(r2mr1,2);
+    Serial.print(",");
+    Serial.print(s1ms3,2);
+    Serial.print(",");
+    Serial.print(s3ms2,2);
+    Serial.print(",");
+#endif
+
+#if 0
+//    Serial.print("sinin=");
+    Serial.print(sinin,2);
+    Serial.print(", ");
+//    Serial.print("cosin=");
+    Serial.print(cosin,2);
+    Serial.print(", ");
+#endif
+
+#if 0
+    Serial.print("delta=");
+    Serial.print(delta,2);
+    Serial.print(", ");
+    Serial.print("demod=");
+    Serial.print(demod,2);
+    Serial.print(", ");
+#endif
+
+    angle = theta*180/M_PI ;
+    angle = fmod(angle+180,360);
+#if 1
+//    Serial.print("theta=");
+//    Serial.print(theta,2);
+//    Serial.print(theta_,2);
+//    Serial.print(", ");
+//    Serial.print("angle=");
+    Serial.print("0, 360, ");
+    Serial.print(angle,2);
+    Serial.println();
+#endif
+
+    draw_needle(angle);
 
     }
-  }
 }
