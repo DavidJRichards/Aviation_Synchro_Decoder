@@ -34,6 +34,7 @@ ADCInput ADCInputs(A0, A1, A2);
 
 #define PIN_DEBUG 4
 
+uint32_t targetTime = 0;       
 unsigned long nextLoop;
 int adcVal;
 int sinVal;
@@ -55,7 +56,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   
   ADCInputs.setFrequency(10000);
-  ADCInputs.setBuffers(3, 1024);
+  ADCInputs.setBuffers(3, 2500);
   ADCInputs.begin();
 
   // configure for automatic base-line restoration and continuous scan mode:
@@ -81,9 +82,11 @@ void loop() {
   else
     digitalWriteFast(LED_BUILTIN, LOW);                                
 
-  cnt++;
-  if(cnt >= 5000) { // publish every 0.5s
+  if (targetTime < millis()) 
+  {
+    targetTime += 250;
     synchro.publish();
+    Serial.print("0, -5, +5 ");
     Serial.print(synchro.rmsVal,2);
     Serial.print(", ");
     Serial.print(synchro.sinVal,2);
@@ -92,7 +95,6 @@ void loop() {
 //    Serial.print(", ");
 //    Serial.println(synchro.dcBias);
     Serial.println();
-    cnt=0;
     //readRms.start();  // Restart the acquisition after publishing if the mode is single scan.
   }
 

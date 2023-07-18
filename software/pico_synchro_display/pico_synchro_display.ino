@@ -14,8 +14,9 @@
 #include <ADCInput.h>         // buffered ADC read stream
 #include <math.h>             // initial build using floating point, intent to rewrite with fixed point
 
-#define ADC_READ_FREQ 10000   // frequency of adc reading (per each channel)
-#define ADC_OFFSET 2064       // vause with no input present
+#define ADC_READ_FREQ   11000   // frequency of adc reading (per each channel)
+#define ADC_READ_BUFFERS 2500
+#define ADC_OFFSET       2064       // vause with no input present
 
 ADCInput ADCInputs(A0, A1, A2);
 TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
@@ -37,7 +38,9 @@ void setup(void) {
   
   Serial.begin(115200);
 //  while(!Serial);
-  ADCInputs.begin(ADC_READ_FREQ);
+  ADCInputs.setFrequency(ADC_READ_FREQ);
+  ADCInputs.setBuffers(3, ADC_READ_BUFFERS);
+  ADCInputs.begin();
 
   // Draw clock face
   tft.fillCircle(120, 120, 118, TFT_WHITE);
@@ -95,10 +98,21 @@ void draw_needle(float sdeg)
     sy = sin((sdeg-90)*0.0174532925);
 
     // Redraw new hand positions
-    tft.drawLine(osx, osy, 120, 121, TFT_BLACK);
+
+        tft.drawLine(osx-1, osy, 120-1, 121, TFT_BLACK);
+//    tft.drawLine(osx, osy-1, 120, 121-1, TFT_BLACK);
+//    tft.drawLine(osx, osy, 120, 121, TFT_BLACK);
+    tft.drawLine(osx+1, osy, 120+1, 121, TFT_BLACK);
+//      tft.drawLine(osx, osy+1, 120, 121+1, TFT_BLACK);
+
     osx = sx*99+121;    
     osy = sy*99+121;
-    tft.drawLine(osx, osy, 120, 121, TFT_RED);
+    tft.drawLine(osx-1, osy, 120-1, 121, TFT_RED);
+//    tft.drawLine(osx, osy-1, 120, 121-1, TFT_RED);
+//    tft.drawLine(osx, osy, 120, 121, TFT_MAGENTA);
+    tft.drawLine(osx+1, osy, 120+1, 121, TFT_RED);
+//    tft.drawLine(osx, osy+1, 120, 121+1, TFT_RED);
+
     tft.fillCircle(120, 121, 3, TFT_RED);
 
 }
@@ -120,24 +134,32 @@ void loop() {
 
   // run repeatedly:  read the ADC. ( 0 to 4095 )
   // make value signed +- 2048 by applying offset
-  refVal=ADCInputs.read()-ADC_OFFSET; 
+  refVal=ADCInputs.read()-ADC_OFFSET-1; 
   cosVal=ADCInputs.read()-ADC_OFFSET;
-  sinVal=ADCInputs.read()-ADC_OFFSET;
+  sinVal=ADCInputs.read()-ADC_OFFSET+4;
 
   // note that s2ms1 isn't actually used
   // convert to float in range -2PI to +2PI
-  r2mr1 = - refVal / (2048.0 / 2 * M_PI); // Vr2mr1 = -Vr1mr2 = -(Vredwht - Vblkwht)
+//  r2mr1 =   refVal / (2048.0 / 2 * M_PI); // Vr2mr1 = -Vr1mr2 = -(Vredwht - Vblkwht)
   s1ms3 =   sinVal / (2048.0 / 2 * M_PI); // Vs1ms3 = Vylw    - Vblu
   s3ms2 =   cosVal / (2048.0 / 2 * M_PI); // Vs3ms2 = Vblu    - Vblk
 //  s2ms1 =  channels[3] / 32768.0 # Vs2ms1 = Vblk    - Vylw  
 
+#if 0
   // convert reference waveform into square wave by getting its sign
   if (r2mr1 < 0)
       refsqwv = -1;
-  else if (r2mr1 > 0)
+  else if (r2mr1 >= 0)
       refsqwv = +1;
   else
       refsqwv = 0;
+#else
+  if (refVal > 0)
+      refsqwv = 1;
+  else
+      refsqwv = -1;
+
+#endif
 
 #if 0
   if(refsqwv>0)
@@ -146,11 +168,11 @@ void loop() {
     digitalWriteFast(LED_BUILTIN, LOW);                                
 #endif
 
-#if 0
-  // scott t transform the inputs
+#if 1 
+  // scott t transform the synchro inputs
   sinin = s1ms3;
   // cosin = 2/sqrt(3) * (s3ms2 + 0.5 * s1ms3)
-  cosin = 1.1547 * (s3ms2 + 0.5 * s1ms3);
+  cosin = 1.1547 * (s3ms2 - 0.5 * s1ms3);
 #else  
   // or do nothing if resolver inputs
   sinin = s1ms3;
@@ -177,14 +199,16 @@ void loop() {
     targetTime += 250;
 
 #if 0                                   
+//    Serial.print("-2048, 2048, ");
+    Serial.print("-10, 10, ");
 //    Serial.print("ref=");
     Serial.print(refVal);
     Serial.print(", ");
 //    Serial.print("sin=");
-    Serial.print(sinVal);
+    Serial.print(cosVal);
     Serial.print(", ");
 //    Serial.print("cos=");
-    Serial.print(cosVal);
+    Serial.print(sinVal);
     Serial.print(", ");
 #endif
 
@@ -225,9 +249,8 @@ void loop() {
 //    Serial.print("angle=");
     Serial.print("0, 360, ");
     Serial.print(angle,2);
-    Serial.println();
 #endif
-
+    Serial.println();
     draw_needle(angle);
 
     }
