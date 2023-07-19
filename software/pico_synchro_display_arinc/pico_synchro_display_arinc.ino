@@ -28,290 +28,61 @@
  
  */
 
+#include <Arduino.h>
+#include <math.h>             // initial build using floating point, intent to rewrite with fixed point
 #include <SPI.h>
 #include <TFT_eSPI.h>         // Hardware-specific library
 #include <ADCInput.h>         // buffered ADC read stream
-#include <math.h>             // initial build using floating point, intent to rewrite with fixed point
-#include <Arduino.h>
 #include <RotaryEncoder.h>
+#include "Arinc.h"
+#include "Compass.h"
+#include "Encoder.h"
 
-typedef union {
-//    byte ar249_B[4];
-//    word ar429_W[2];
-    unsigned long ar429_L;
-    struct 
-    {
-      unsigned long label:  8;  // 2,3,3 LSB
-      unsigned long sdi:    2;  // source / destination identifier
-      unsigned long data:  19;  // 
-      unsigned long ssm:    2;  // sign / status matrix
-      unsigned long parity: 1;  // odd parity MSB
-    };
-} ARINC429;
-
-#define PIN_IN1 22
-#define PIN_IN2 20
-RotaryEncoder encoder(PIN_IN1, PIN_IN2, RotaryEncoder::LatchMode::TWO03);
-
-constexpr float m = 10;
-// at 200ms or slower, there should be no acceleration. (factor 1)
-constexpr float longCutoff = 50;
-// at 5 ms, we want to have maximum acceleration (factor m)
-constexpr float shortCutoff = 5;
-// To derive the calc. constants, compute as follows:
-// On an x(ms) - y(factor) plane resolve a linear formular factor(ms) = a * ms + b;
-// where  f(4)=10 and f(200)=1
-constexpr float a = (m - 1) / (shortCutoff - longCutoff);
-constexpr float b = 1 - longCutoff * a;
-// a global variables to hold the last position
-static int lastPos, newPos;
-
-#define INITIAL_ENCODER_VALUE -99; // used to subtract 9.9 degree offset on mechanical course reading
-
-#define PIN_Hi_429  6
-#define PIN_Lo_429  5
-#define PIN_Debug   25
-
-long target2_time;    // second core event timer value
+uint32_t targetTime = 0;    // millis value for next display event
+long target2_time = 0;    // second core event timer value
 long ARINC_value;     // value sent to ARINC display
+int  encoder_pos;
+volatile float theta=0.0;
+float angle;                // value sent to display
 
-ARINC429 dAR429;
-
-
-// function copied from https://stackoverflow.com/questions/13247647/convert-integer-from-pure-binary-to-bcd
-long bin2BCD(long binary) { // double dabble: 8 decimal digits in 32 bits BCD
-  if (!binary) return 0;
-  long bit = 0x4000000; //  99999999 max binary
-  while (!(binary & bit)) bit >>= 1;  // skip to MSB
-
-  long bcd = 0;
-  long carry = 0;
-  while (1) {
-    bcd <<= 1;
-    bcd += carry; // carry 6s to next BCD digits (10 + 6 = 0x10 = LSB of next BCD digit)
-    if (bit & binary) bcd |= 1;
-    if (!(bit >>= 1)) return bcd;
-    carry = ((bcd + 0x33333333) & 0x88888888) >> 1; // carrys: 8s -> 4s
-    carry += carry >> 1; // carrys 6s  
-  }
-}
-
-word ARINC429_Permute8Bits(word label8bits)
-{
-  int i;
-  word mask, result;
-
-  result = 0;
-  for(i = 0, mask = 0x80; i<8; i += 1, mask >>= 1)
-    result |= ( (label8bits & mask) ? (1 << i) : 0 );
-  return result;
-}
-
-word ARINC429_ComputeMSBParity(unsigned long ar429_L)
-{
-  int bitnum;
-  int parity=0;
-  unsigned long bitmask = 1L;
-
-  // check all bits except parity bit
-  for(bitnum = 0, bitmask = 1L; bitnum<31; bitnum += 1, bitmask <<= 1L)
-  {
-    if(ar429_L & bitmask)
-      parity++; 
-  }
-  return (parity%2) ? 0 : 1;
-}
-
-unsigned long ARINC429_BuildCommand( unsigned char label, unsigned char sdi, unsigned long data, unsigned char ssm)
-{
-
-  dAR429.data = bin2BCD(data); // 19bits data
-  dAR429.label = ARINC429_Permute8Bits(label);
-  dAR429.sdi = sdi & 0x03;  
-  dAR429.ssm = ssm & 0x03;  
-  dAR429.parity = ARINC429_ComputeMSBParity(dAR429.ar429_L); // parity: MSB  
-
-  return dAR429.ar429_L;
- }
-
-void printbits(unsigned long value, word start, word finish, char delim)
-{
-  unsigned long bitnum;
-  unsigned long bitmask;
-
-  bitmask = 1L << finish;
-  for(bitnum = finish; bitnum+1 > start; bitnum -- , bitmask >>= 1)
-    Serial.print(value & bitmask ? "1" : "0");
-  
-  Serial.print(delim);
-}
-
-void ARINC429_PrintCommand( unsigned long ar429_L)
-{
-  int bitnum;
-  unsigned long bitmask = 1L;
-
-  dAR429.ar429_L = ar429_L;
-
-  Serial.print("parity: ");
-  Serial.println(dAR429.parity, HEX);
-  Serial.print("ssm: ");
-  Serial.println(dAR429.ssm, HEX);
-  Serial.print("BCD data: ");
-  Serial.println(dAR429.data, HEX);
-  Serial.print("sdi: ");
-  Serial.println(dAR429.sdi, HEX);
-  Serial.print("Label (oct): ");
-  Serial.println(ARINC429_Permute8Bits(dAR429.label), OCT);
-
-  Serial.print("Bitstream: ");
-  printbits(dAR429.parity,0,0,',');
-  printbits(dAR429.ssm,1,2,',');
-  Serial.print('[');
-  printbits(dAR429.data,16,18,',');
-  printbits(dAR429.data,12,15,',');
-  printbits(dAR429.data,8,11,',');
-  printbits(dAR429.data,4,7,',');
-  printbits(dAR429.data,0,3,']');
-  Serial.print(',');
-  printbits(dAR429.sdi,0,1,',');
-  printbits(dAR429.label,0,7,'\n');
-
-}
-
-
-void transmit_bit(char bitvalue)
-{
-  if(bitvalue)
-  {
-    digitalWrite(PIN_Hi_429, HIGH);
-    digitalWrite(PIN_Lo_429, LOW);
-  }
-  else
-  {
-    digitalWrite(PIN_Hi_429, LOW);
-    digitalWrite(PIN_Lo_429, HIGH);
-  }
-  delayMicroseconds(24);
-  digitalWrite(PIN_Hi_429, LOW);
-  digitalWrite(PIN_Lo_429, LOW);
-  delayMicroseconds(40);
-}
-
-void ARINC429_SendCommand( unsigned long ar429_L)
-{
-  int bitnum;
-  unsigned long bitmask = 1L;
-
-  digitalWrite(PIN_Debug,HIGH);
-  // for all bits
-  for(bitnum = 0, bitmask = 1L; bitnum<32; bitnum ++, bitmask <<= 1)
-  {
-    transmit_bit(ar429_L & bitmask ? 1 : 0);
-  }  
-  digitalWrite(PIN_Debug,LOW);
-}
+#define INITIAL_ENCODER_VALUE -99 // used to subtract 9.9 degree offset on mechanical course reading
 
 #define ADC_READ_FREQ    8000   // frequency of adc reading (per each channel)
 #define ADC_READ_BUFFERS 2500
 #define ADC_OFFSET       2064   // value with no input present
 
 ADCInput ADCInputs(A0, A1, A2);
-TFT_eSPI tft = TFT_eSPI();      // Invoke custom library
 
-#define TFT_GREY 0x5AEB
-float sx = 0, sy = 1;       // Saved H, M, S x & y multipliers
-uint16_t osx=120, osy=120;  // Saved H, M, S x & y coords
-uint16_t x0=0, x1=0, yy0=0, yy1=0;
-uint8_t ss=0;
-
-uint32_t targetTime = 0;    // millis value for next display event
-float angle;                // value sent to display
+void waitForSerial(unsigned long timeout_millis) {
+  unsigned long start = millis();
+  while (!Serial) {
+    if (millis() - start > timeout_millis)
+      break;
+  }
+}
 
 void setup(void) {
-  tft.init();
-  tft.setRotation(0);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_GREY);  // Adding a background colour erases previous text automatically
 
   Serial.begin(115200);
-//  while(!Serial);
+  waitForSerial(3000);
   ADCInputs.setFrequency(ADC_READ_FREQ);
   ADCInputs.setBuffers(3, ADC_READ_BUFFERS);
   ADCInputs.begin();
 
-  // Draw clock face
-  tft.fillCircle(120, 120, 118, TFT_WHITE);
-  tft.fillCircle(120, 120, 110, TFT_BLACK);
-
-  // Draw 12 lines
-  for(int i = 0; i<360; i+= 5) {
-    sx = cos((i-90)*0.0174532925);
-    sy = sin((i-90)*0.0174532925);
-    x0 = sx*110+120;
-    yy0 = sy*110+120;
-    x1 = sx*108+120;
-    yy1 = sy*108+120;
-
-    tft.drawLine(x0, yy0, x1, yy1, TFT_WHITE);
-  }
-  // Draw 12 lines
-  for(int i = 0; i<360; i+= 30) {
-    sx = cos((i-90)*0.0174532925);
-    sy = sin((i-90)*0.0174532925);
-    x0 = sx*114+120;
-    yy0 = sy*114+120;
-    x1 = sx*100+120;
-    yy1 = sy*100+120;
-
-    tft.drawLine(x0, yy0, x1, yy1, TFT_WHITE);
-  }
-
-
-  // Draw 60 dots
-  for(int i = 0; i<360; i+= 10) {
-    sx = cos((i-90)*0.0174532925);
-    sy = sin((i-90)*0.0174532925);
-    x0 = sx*102+120;
-    yy0 = sy*102+120;
-     // Draw minute markers
-    tft.drawPixel(x0, yy0, TFT_WHITE);
-
-    // Draw main quadrant dots
-    if(i==0 || i==180) tft.fillCircle(x0, yy0, 2, TFT_WHITE);
-    if(i==90 || i==270) tft.fillCircle(x0, yy0, 2, TFT_WHITE);
-  }
-
-  tft.fillCircle(120, 121, 3, TFT_WHITE);
-
   targetTime = millis() + 1000; 
-  draw_needle(0);
 
 }
 
-void draw_needle(float sdeg)
-{
-      // Pre-compute hand degrees, x & y coords for a fast screen update
-    sx = cos((sdeg-90)*0.0174532925);    
-    sy = sin((sdeg-90)*0.0174532925);
+void setup1() {
+  // put your setup code here, to run once:
+  // pins used by encoder
+  pinMode(PIN_Hi_429, OUTPUT);
+  pinMode(PIN_Lo_429, OUTPUT);
+  pinMode(PIN_Debug,  OUTPUT);
 
-    // Redraw new hand positions
-
-        tft.drawLine(osx-1, osy, 120-1, 121, TFT_BLACK);
-//    tft.drawLine(osx, osy-1, 120, 121-1, TFT_BLACK);
-//    tft.drawLine(osx, osy, 120, 121, TFT_BLACK);
-    tft.drawLine(osx+1, osy, 120+1, 121, TFT_BLACK);
-//      tft.drawLine(osx, osy+1, 120, 121+1, TFT_BLACK);
-
-    osx = sx*99+121;    
-    osy = sy*99+121;
-    tft.drawLine(osx-1, osy, 120-1, 121, TFT_RED);
-//    tft.drawLine(osx, osy-1, 120, 121-1, TFT_RED);
-//    tft.drawLine(osx, osy, 120, 121, TFT_MAGENTA);
-    tft.drawLine(osx+1, osy, 120+1, 121, TFT_RED);
-//    tft.drawLine(osx, osy+1, 120, 121+1, TFT_RED);
-
-    tft.fillCircle(120, 121, 3, TFT_RED);
+  encoder_init(INITIAL_ENCODER_VALUE);
+  compass_init();
+  draw_needle(0);
 
 }
 
@@ -326,13 +97,7 @@ void loop() {
   //float s2ms1;
 
   float sinin, cosin, delta, demod;
-  static float theta=0.0;
-
   int refsqwv;
-
-  unsigned long data, ARINC_data;
-  word label, sdi, ssm;
-
 
   // run repeatedly:  read the ADC. ( 0 to 4095 )
   // make value signed +- 2048 by applying offset
@@ -360,7 +125,6 @@ void loop() {
       refsqwv = 1;
   else
       refsqwv = -1;
-
 #endif
 
 #if 0
@@ -394,7 +158,7 @@ void loop() {
   // wrap from -pi to +pi
   theta = fmod((theta),(M_PI));
 
-
+/*
 // angle display update every 250mS
   if (targetTime < millis()) 
   {
@@ -441,90 +205,51 @@ void loop() {
     Serial.print(", ");
 #endif
 
+#if 0 // moved to second core
     angle = theta*180/M_PI ;
     angle = fmod(angle+180,360);
-#if 0
     Serial.print("theta=");
     Serial.print(theta,2);
     Serial.print(theta_,2);
     Serial.print(", ");
     Serial.print("angle=");
-#endif
     Serial.print("0, 360, ");
     Serial.print(angle,2);
     Serial.println();
-    draw_needle(angle);
+#endif
 
   }
-
+*/
 }
-
-void setup1() {
-  // put your setup code here, to run once:
-  // pins used by encoder
-  pinMode(PIN_Hi_429, OUTPUT);
-  pinMode(PIN_Lo_429, OUTPUT);
-  pinMode(PIN_Debug,  OUTPUT);
- 
-  lastPos = newPos= INITIAL_ENCODER_VALUE;
-  encoder.setPosition(lastPos);
-}
-
 
 void loop1() {
   // put your main code here, to run repeatedly: 
   unsigned long data, ARINC_data;
   word label, sdi, ssm;
+  
+  encoder_pos = encoder_process();
 
-  encoder.tick();
-  newPos = encoder.getPosition();
-  if (lastPos != newPos) {
+  label = 0201;   // octal message label
+  sdi   = 0;      // source - destination identifiers
+  ssm   = 0;      // sign status matrix
 
-    // accelerate when there was a previous rotation in the same direction.
-
-    unsigned long ms = encoder.getMillisBetweenRotations();
-
-    if (ms < longCutoff) {
-      // do some acceleration using factors a and b
-
-      // limit to maximum acceleration
-      if (ms < shortCutoff) {
-        ms = shortCutoff;
-      }
-
-      float ticksActual_float = a * ms + b;
-//      Serial.print("  f= ");
-//      Serial.println(ticksActual_float);
-
-      long deltaTicks = (long)ticksActual_float * (newPos - lastPos);
-//      Serial.print("  d= ");
-//      Serial.println(deltaTicks);
-
-      newPos = newPos + deltaTicks;
-      encoder.setPosition(newPos);
-    }
-
-//    Serial.println(newPos);
-//    Serial.print("  ms: ");
-//    Serial.println(ms);
-    lastPos = newPos;
-  } // if
-
-  label = 0201;  // octal
-  sdi   = 0;
-  ssm   = 0;
-
-#if 1
   target2_time = millis();
   if(target2_time % 250L == 0)
   {
-    //data = abs(lastPos * 10);
-    ARINC_value=int(36000 + (angle*100) + (lastPos*10)) % 36000;
+    angle = theta*180/M_PI ;
+    angle = fmod(angle+180,360);
+
+    ARINC_value=int(36000 + (angle*100) + (encoder_pos*10)) % 36000;
      ARINC_data = ARINC429_BuildCommand(label, sdi, ARINC_value, ssm);
 //    ARINC429_PrintCommand(ARINC_data);
     ARINC429_SendCommand(ARINC_data);
+//    Serial.print("Enc=");
+//    Serial.println(encoder_pos);
+//    Serial.print("angle=");
+//    Serial.print(angle,1);
+
+    draw_needle(angle);   // draw meter pointer
   }
-#endif
 
 }
 
